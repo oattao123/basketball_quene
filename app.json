@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Basketball Queue",
+    "slug": "basketball-queue-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./icon.png",
+    "jsEngine": "hermes",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FF6B35"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.basketballqueueapp",
+      "buildNumber": "1.0.0",
+      "icon": "./icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "icon": "./icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./icon.png",
+        "backgroundColor": "#FF6B35"
+      },
+      "package": "com.basketballqueueapp",
+      "versionCode": 1
+    },
+    "extra": {
+      "eas": {
+        "projectId": "06fc595f-a3c4-44b5-8488-b879a291576a"
+      }
+    }
+  }
+}

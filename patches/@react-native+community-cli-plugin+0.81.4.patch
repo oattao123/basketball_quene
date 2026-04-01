@@ -1,0 +1,18 @@
+*** Begin Patch
+*** Update File: packages/community-cli-plugin/dist/utils/loadMetroConfig.js
+@@
+-const metro = require('@react-native/metro-config');
+-
+-module.exports = typeof metro.loadConfig === 'function' ? metro.loadConfig : metro;
++const metro = require('@react-native/metro-config');
++
++if (typeof metro.loadConfig === 'function') {
++  module.exports = metro.loadConfig;
++} else if (typeof metro === 'function') {
++  module.exports = metro;
++} else if (metro && typeof metro.default === 'function') {
++  module.exports = metro.default;
++} else {
++  throw new Error('`@react-native/metro-config` does not have the expected API. Ensure it matches your React Native version.');
++}
+*** End Patch
