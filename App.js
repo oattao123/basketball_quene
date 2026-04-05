@@ -72,67 +72,52 @@ const WheelPicker = ({ value, onValueChange }) => {
   };
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-      <TouchableOpacity 
-        style={{ paddingHorizontal: 20, height: ITEM_HEIGHT * 3, justifyContent: 'center' }} 
-        onPress={() => onValueChange(Math.max(1, value - 1))}>
-        <Text style={{ fontSize: 40, color: 'rgba(255,255,255,0.8)', fontWeight: '900' }}>-</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: ITEM_HEIGHT * 3, width: 100, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-        {/* Highlight Box */}
-        <View style={{
-          position: 'absolute',
-          top: ITEM_HEIGHT,
-          left: -10,
-          right: -10,
-          height: ITEM_HEIGHT,
-          borderTopWidth: 2,
-          borderBottomWidth: 2,
-          borderColor: 'rgba(255,107,53,0.5)',
-          backgroundColor: 'rgba(255,255,255,0.05)',
-          borderRadius: 12,
-        }} />
-        
-        <FlatList
-          ref={flatListRef}
-          data={minutesData}
-          keyExtractor={(item) => item.toString()}
-          showsVerticalScrollIndicator={Platform.OS === 'web'}
-          snapToInterval={ITEM_HEIGHT}
-          decelerationRate="fast"
-          onScroll={onScroll}
-          onMomentumScrollEnd={onScrollEnd}
-          onScrollEndDrag={onScrollEnd}
-          scrollEventThrottle={16}
-          contentContainerStyle={{
-            paddingVertical: ITEM_HEIGHT,
-          }}
-          renderItem={({ item, index }) => {
-            const isSelected = index === scrollIndex;
-            return (
-              <View style={{ height: ITEM_HEIGHT, justifyContent: 'center', alignItems: 'center', width: 100 }}>
-                <Text style={{
-                  fontSize: isSelected ? 52 : 28,
-                  fontWeight: isSelected ? '900' : '600',
-                  color: isSelected ? '#FFF' : 'rgba(255,255,255,0.3)',
-                  ...Platform.select({ web: { userSelect: 'none' }, default: {} })
-                }}>
-                  {item.toString().padStart(2, '0')}
-                </Text>
-              </View>
-            );
-          }}
-        />
-      </View>
-
-      <TouchableOpacity 
-        style={{ paddingHorizontal: 20, height: ITEM_HEIGHT * 3, justifyContent: 'center' }} 
-        onPress={() => onValueChange(Math.min(99, value + 1))}>
-        <Text style={{ fontSize: 40, color: 'rgba(255,255,255,0.8)', fontWeight: '900' }}>+</Text>
-      </TouchableOpacity>
-
-      <Text style={{ fontSize: 24, fontWeight: '800', color: 'rgba(255,255,255,0.8)', marginLeft: 0 }}>นาที</Text>
+    <View style={{ height: ITEM_HEIGHT * 3, overflow: 'hidden', alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+      {/* Highlight Box */}
+      <View style={{
+        position: 'absolute',
+        top: ITEM_HEIGHT,
+        left: -10,
+        right: 0,
+        height: ITEM_HEIGHT,
+        borderTopWidth: 2,
+        borderBottomWidth: 2,
+        borderColor: 'rgba(255,107,53,0.5)',
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 12,
+      }} />
+      
+      <FlatList
+        ref={flatListRef}
+        data={minutesData}
+        keyExtractor={(item) => item.toString()}
+        showsVerticalScrollIndicator={Platform.OS === 'web'}
+        snapToInterval={ITEM_HEIGHT}
+        decelerationRate="fast"
+        onScroll={onScroll}
+        onMomentumScrollEnd={onScrollEnd}
+        onScrollEndDrag={onScrollEnd}
+        scrollEventThrottle={16}
+        contentContainerStyle={{
+          paddingVertical: ITEM_HEIGHT,
+        }}
+        renderItem={({ item, index }) => {
+          const isSelected = index === scrollIndex;
+          return (
+            <View style={{ height: ITEM_HEIGHT, justifyContent: 'center', alignItems: 'center', width: 100 }}>
+              <Text style={{
+                fontSize: isSelected ? 52 : 28,
+                fontWeight: isSelected ? '900' : '600',
+                color: isSelected ? '#FFF' : 'rgba(255,255,255,0.3)',
+                ...Platform.select({ web: { userSelect: 'none' }, default: {} })
+              }}>
+                {item.toString().padStart(2, '0')}
+              </Text>
+            </View>
+          );
+        }}
+      />
+      <Text style={{ fontSize: 24, fontWeight: '800', color: 'rgba(255,255,255,0.8)', marginLeft: 10 }}>นาที</Text>
     </View>
   );
 };
