@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏀 Basketball Queue - เชื่อมต่อ</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 50%, #FF8C42 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 32px;
+            padding: 40px 32px;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.2);
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo {
+            font-size: 64px;
+            margin-bottom: 8px;
+            display: inline-block;
+            animation: spin 3s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 900;
+            color: #2C3E50;
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            color: #7F8C8D;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 28px;
+        }
+
+        .qr-container {
+            background: white;
+            border-radius: 20px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            border: 2px solid #f0f0f0;
+        }
+
+        .qr-container img {
+            width: 220px;
+            height: 220px;
+            border-radius: 12px;
+        }
+
+        .qr-label {
+            font-size: 13px;
+            color: #95A5A6;
+            font-weight: 600;
+            margin-top: 12px;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 20px 0;
+            color: #BDC3C7;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #ECF0F1;
+        }
+
+        .divider span {
+            padding: 0 16px;
+        }
+
+        .method {
+            background: #F8F9FA;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 12px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+
+        .method:hover {
+            background: #FFF5F0;
+            border-color: #FF6B35;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255,107,53,0.15);
+        }
+
+        .method-icon {
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
+
+        .method-title {
+            font-weight: 800;
+            color: #2C3E50;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
+        .method-desc {
+            color: #7F8C8D;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .link-box {
+            background: #2C3E50;
+            border-radius: 14px;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 8px;
+            gap: 10px;
+        }
+
+        .link-text {
+            color: #4FC3F7;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            font-weight: 700;
+            word-break: break-all;
+            text-align: left;
+        }
+
+        .copy-btn {
+            background: #FF6B35;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-weight: 800;
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .copy-btn:hover {
+            background: #E55A2B;
+            transform: scale(1.05);
+        }
+
+        .copy-btn.copied {
+            background: #4CAF50;
+        }
+
+        .steps {
+            text-align: left;
+            margin-top: 24px;
+            padding: 20px;
+            background: linear-gradient(135deg, #FFF5F0, #FFF8F5);
+            border-radius: 16px;
+            border: 1px solid #FFE0CC;
+        }
+
+        .steps-title {
+            font-weight: 800;
+            color: #FF6B35;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            color: #555;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .step-num {
+            background: #FF6B35;
+            color: white;
+            border-radius: 50%;
+            min-width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .open-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #FF6B35, #F7931E);
+            color: white;
+            text-decoration: none;
+            padding: 16px 40px;
+            border-radius: 16px;
+            font-weight: 800;
+            font-size: 16px;
+            margin-top: 20px;
+            transition: all 0.3s;
+            box-shadow: 0 6px 20px rgba(255,107,53,0.35);
+            border: none;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .open-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(255,107,53,0.45);
+        }
+
+        .wifi-notice {
+            margin-top: 20px;
+            padding: 12px 16px;
+            background: #E8F5E9;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #2E7D32;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 20px;
+            background: #F0F2F5;
+            padding: 4px;
+            border-radius: 14px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            background: transparent;
+            border-radius: 11px;
+            font-weight: 700;
+            font-size: 13px;
+            color: #7F8C8D;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .tab.active {
+            background: white;
+            color: #FF6B35;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .footer {
+            margin-top: 24px;
+            color: rgba(255,255,255,0.7);
+            font-size: 12px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="logo">🏀</div>
+    <h1>Basketball Queue</h1>
+    <p class="subtitle">จัดการคิวการเล่นบาส • เชื่อมต่อง่าย!</p>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('qr')">📷 สแกน QR</button>
+        <button class="tab" onclick="switchTab('link')">🔗 ลิงก์</button>
+        <button class="tab" onclick="switchTab('expo')">📱 Expo Go</button>
+    </div>
+
+    <!-- Tab 1: QR Code -->
+    <div id="tab-qr" class="tab-content active">
+        <div class="qr-container">
+            <img id="qr-web" src="" alt="QR Code">
+            <p class="qr-label">สแกนเพื่อเปิดบนมือถือ</p>
+        </div>
+        <a id="web-link" class="open-btn" href="#" target="_blank">🌐 เปิดบนเครื่องนี้</a>
+    </div>
+
+    <!-- Tab 2: Link -->
+    <div id="tab-link" class="tab-content">
+        <div class="method" onclick="copyLink('web')">
+            <div class="method-icon">🌐</div>
+            <div class="method-title">เปิดผ่าน Web Browser</div>
+            <div class="method-desc">เปิดได้ทันที ไม่ต้องติดตั้งแอป</div>
+            <div class="link-box">
+                <span id="web-url" class="link-text"></span>
+                <button id="copy-web" class="copy-btn" onclick="event.stopPropagation(); copyLink('web')">คัดลอก</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab 3: Expo Go -->
+    <div id="tab-expo" class="tab-content">
+        <div class="method">
+            <div class="method-icon">📱</div>
+            <div class="method-title">เปิดผ่าน Expo Go</div>
+            <div class="method-desc">ใช้งานเหมือนแอปจริง</div>
+            <div class="qr-container" style="margin-top: 12px; margin-bottom: 0;">
+                <img id="qr-expo" src="" alt="Expo QR Code">
+                <p class="qr-label">สแกนด้วย Expo Go (Android) / กล้อง (iOS)</p>
+            </div>
+        </div>
+
+        <div class="steps">
+            <div class="steps-title">📋 วิธีใช้ Expo Go</div>
+            <div class="step"><span class="step-num">1</span> ดาวน์โหลด Expo Go จาก App Store / Play Store</div>
+            <div class="step"><span class="step-num">2</span> เชื่อมต่อ WiFi เดียวกัน</div>
+            <div class="step"><span class="step-num">3</span> สแกน QR Code ด้านบน</div>
+        </div>
+    </div>
+
+    <div class="wifi-notice">
+        📶 ต้องเชื่อมต่อ WiFi เดียวกัน
+    </div>
+</div>
+
+<p class="footer">Basketball Queue v1.0 • สร้างด้วย ❤️</p>
+
+<script>
+    // Auto-detect IP and port
+    const LOCAL_IP = window.location.hostname || '192.168.1.193';
+    const WEB_PORT = '8082';
+    const EXPO_PORT = '8082';
+    
+    const webUrl = `http://${LOCAL_IP}:${WEB_PORT}`;
+    const expoUrl = `exp://${LOCAL_IP}:${EXPO_PORT}`;
+    
+    // QR Code API
+    const qrSize = 220;
+    document.getElementById('qr-web').src = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(webUrl)}&color=2C3E50&bgcolor=FFFFFF`;
+    document.getElementById('qr-expo').src = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(expoUrl)}&color=FF6B35&bgcolor=FFFFFF`;
+    
+    // Set URLs
+    document.getElementById('web-url').textContent = webUrl;
+    document.getElementById('web-link').href = webUrl;
+
+    // Tab switching
+    function switchTab(tab) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('tab-' + tab).classList.add('active');
+    }
+
+    // Copy link
+    function copyLink(type) {
+        const url = type === 'web' ? webUrl : expoUrl;
+        navigator.clipboard.writeText(url).then(() => {
+            const btn = document.getElementById('copy-' + type);
+            if (btn) {
+                btn.textContent = '✓ คัดลอกแล้ว!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'คัดลอก';
+                    btn.classList.remove('copied');
+                }, 2000);
+            }
+        });
+    }
+</script>
+
+</body>
+</html>

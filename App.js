@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -10,11 +10,116 @@ import {
   Alert,
   FlatList,
   Dimensions,
+  Platform,
+  Animated,
+  Easing,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
+
+// ===== WebSocket Sync Config =====
+// Auto-detect server IP from current URL on web, fallback to manual IP
+const getServerUrl = () => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const host = window.location.hostname || '192.168.1.193';
+    return `ws://${host}:3333`;
+  }
+  return 'ws://192.168.1.193:3333';
+};
+
+const SYNC_SERVER = getServerUrl();
+
+// ===== Wheel Picker for Time Selection =====
+const ITEM_HEIGHT = 60;
+const minutesData = Array.from({ length: 99 }, (_, i) => i + 1);
+
+const WheelPicker = ({ value, onValueChange }) => {
+  const flatListRef = useRef(null);
+  const [scrollIndex, setScrollIndex] = useState(minutesData.indexOf(value));
+
+  useEffect(() => {
+    if (flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({
+          offset: Math.max(0, minutesData.indexOf(value)) * ITEM_HEIGHT,
+          animated: false,
+        });
+      }, 50);
+    }
+  }, [value]);
+
+  const onScroll = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    let index = Math.round(y / ITEM_HEIGHT);
+    if (index < 0) index = 0;
+    if (index >= minutesData.length) index = minutesData.length - 1;
+    if (index !== scrollIndex) {
+      setScrollIndex(index);
+    }
+  };
+
+  const onScrollEnd = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    let index = Math.round(y / ITEM_HEIGHT);
+    if (index < 0) index = 0;
+    if (index >= minutesData.length) index = minutesData.length - 1;
+    
+    if (minutesData[index] && minutesData[index] !== value) {
+      onValueChange(minutesData[index]);
+    }
+  };
+
+  return (
+    <View style={{ height: ITEM_HEIGHT * 3, overflow: 'hidden', alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+      {/* Highlight Box */}
+      <View style={{
+        position: 'absolute',
+        top: ITEM_HEIGHT,
+        left: -10,
+        right: 0,
+        height: ITEM_HEIGHT,
+        borderTopWidth: 2,
+        borderBottomWidth: 2,
+        borderColor: 'rgba(255,107,53,0.5)',
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 12,
+      }} />
+      
+      <FlatList
+        ref={flatListRef}
+        data={minutesData}
+        keyExtractor={(item) => item.toString()}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ITEM_HEIGHT}
+        decelerationRate="fast"
+        onScroll={onScroll}
+        onMomentumScrollEnd={onScrollEnd}
+        onScrollEndDrag={onScrollEnd}
+        scrollEventThrottle={16}
+        contentContainerStyle={{
+          paddingVertical: ITEM_HEIGHT,
+        }}
+        renderItem={({ item, index }) => {
+          const isSelected = index === scrollIndex;
+          return (
+            <View style={{ height: ITEM_HEIGHT, justifyContent: 'center', alignItems: 'center', width: 100 }}>
+              <Text style={{
+                fontSize: isSelected ? 52 : 28,
+                fontWeight: isSelected ? '900' : '600',
+                color: isSelected ? '#FFF' : 'rgba(255,255,255,0.3)',
+              }}>
+                {item.toString().padStart(2, '0')}
+              </Text>
+            </View>
+          );
+        }}
+      />
+      <Text style={{ fontSize: 24, fontWeight: '800', color: 'rgba(255,255,255,0.8)', marginLeft: 10 }}>นาที</Text>
+    </View>
+  );
+};
 
 export default function App() {
   const [teams, setTeams] = useState([]);
@@ -36,26 +141,178 @@ export default function App() {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timerInterval, setTimerInterval] = useState(null);
 
-  // Timer functions
+  // ===== WebSocket Sync States =====
+  const [connectedClients, setConnectedClients] = useState(0);
+  const [isConnected, setIsConnected] = useState(false);
+  const wsRef = useRef(null);
+  const skipSyncRef = useRef(false); // Prevent echo loops
+
+  // ===== Animation States =====
+  const spinValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 3000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [spinValue]);
+
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  // ===== Send state to server =====
+  const sendSync = useCallback((stateUpdate) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'STATE_UPDATE',
+        state: stateUpdate,
+      }));
+    }
+  }, []);
+
+  const sendFullSync = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'FULL_STATE_UPDATE',
+        state: {
+          teams, currentlyPlaying, winStreak, restingTeams,
+          gameMode, scores, showScoring, scoringMode,
+          timerDuration, timeLeft, isTimerRunning,
+        },
+      }));
+    }
+  }, [teams, currentlyPlaying, winStreak, restingTeams, gameMode, scores, showScoring, scoringMode, timerDuration, timeLeft, isTimerRunning]);
+
+  // ===== WebSocket Connection =====
+  useEffect(() => {
+    let ws;
+    let reconnectTimer;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(SYNC_SERVER);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          console.log('🔌 Connected to sync server');
+          setIsConnected(true);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+
+            switch (message.type) {
+              case 'FULL_STATE':
+                skipSyncRef.current = true;
+                if (message.state.teams) setTeams(message.state.teams);
+                if (message.state.currentlyPlaying) setCurrentlyPlaying(message.state.currentlyPlaying);
+                if (message.state.winStreak) setWinStreak(message.state.winStreak);
+                if (message.state.restingTeams) setRestingTeams(message.state.restingTeams);
+                if (message.state.gameMode) setGameMode(message.state.gameMode);
+                if (message.state.scores) setScores(message.state.scores);
+                if (message.state.showScoring !== undefined) setShowScoring(message.state.showScoring);
+                if (message.state.scoringMode) setScoringMode(message.state.scoringMode);
+                if (message.state.timerDuration) setTimerDuration(message.state.timerDuration);
+                if (message.state.timeLeft !== undefined) setTimeLeft(message.state.timeLeft);
+                if (message.state.isTimerRunning !== undefined) setIsTimerRunning(message.state.isTimerRunning);
+                if (message.clientCount) setConnectedClients(message.clientCount);
+                setTimeout(() => { skipSyncRef.current = false; }, 100);
+                break;
+
+              case 'STATE_UPDATE':
+                skipSyncRef.current = true;
+                const s = message.state;
+                if (s.teams !== undefined) setTeams(s.teams);
+                if (s.currentlyPlaying !== undefined) setCurrentlyPlaying(s.currentlyPlaying);
+                if (s.winStreak !== undefined) setWinStreak(s.winStreak);
+                if (s.restingTeams !== undefined) setRestingTeams(s.restingTeams);
+                if (s.gameMode !== undefined) setGameMode(s.gameMode);
+                if (s.scores !== undefined) setScores(s.scores);
+                if (s.showScoring !== undefined) setShowScoring(s.showScoring);
+                if (s.scoringMode !== undefined) setScoringMode(s.scoringMode);
+                if (s.timerDuration !== undefined) setTimerDuration(s.timerDuration);
+                if (s.timeLeft !== undefined) setTimeLeft(s.timeLeft);
+                if (s.isTimerRunning !== undefined) setIsTimerRunning(s.isTimerRunning);
+                setTimeout(() => { skipSyncRef.current = false; }, 100);
+                break;
+
+              case 'TIMER_TICK':
+                setTimeLeft(message.timeLeft);
+                break;
+
+              case 'TIMER_END':
+                setIsTimerRunning(false);
+                setTimeLeft(0);
+                Alert.alert('⏰ หมดเวลา!', 'เกมจบแล้ว');
+                break;
+
+              case 'CLIENT_COUNT':
+                setConnectedClients(message.count);
+                break;
+            }
+          } catch (err) {
+            console.error('Parse error:', err);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('❌ Disconnected from sync server');
+          setIsConnected(false);
+          // Try to reconnect after 3 seconds
+          reconnectTimer = setTimeout(connect, 3000);
+        };
+
+        ws.onerror = (err) => {
+          console.log('WebSocket error, will retry...');
+          setIsConnected(false);
+        };
+      } catch (err) {
+        console.log('Connection failed, retrying...');
+        reconnectTimer = setTimeout(connect, 3000);
+      }
+    };
+
+    connect();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, []);
+
   const startTimer = () => {
     if (timeLeft === 0) {
       setTimeLeft(timerDuration * 60);
+      sendSync({ timeLeft: timerDuration * 60, isTimerRunning: true });
+    } else {
+      sendSync({ isTimerRunning: true });
     }
     setIsTimerRunning(true);
   };
 
   const pauseTimer = () => {
     setIsTimerRunning(false);
+    sendSync({ isTimerRunning: false });
   };
 
   const resetTimer = () => {
     setIsTimerRunning(false);
-    setTimeLeft(timerDuration * 60);
+    const newTime = timerDuration * 60;
+    setTimeLeft(newTime);
+    sendSync({ isTimerRunning: false, timeLeft: newTime });
   };
 
   const stopTimer = () => {
     setIsTimerRunning(false);
     setTimeLeft(0);
+    sendSync({ isTimerRunning: false, timeLeft: 0 });
   };
 
   useEffect(() => {
@@ -93,9 +350,12 @@ export default function App() {
       addedAt: new Date(),
     };
 
-    setTeams(prevTeams => [...prevTeams, newTeam]);
-    setWinStreak(prev => ({ ...prev, [newTeam.id]: 0 }));
+    const newTeams = [...teams, newTeam];
+    const newWinStreak = { ...winStreak, [newTeam.id]: 0 };
+    setTeams(newTeams);
+    setWinStreak(newWinStreak);
     setNewTeamName('');
+    sendSync({ teams: newTeams, winStreak: newWinStreak });
   };
 
   const startGame = () => {
@@ -105,31 +365,27 @@ export default function App() {
     }
 
     const playingTeams = teams.slice(0, 2);
+    const newTeams = teams.slice(2);
+    const newScores = { [playingTeams[0].id]: 0, [playingTeams[1].id]: 0 };
     setCurrentlyPlaying(playingTeams);
-    setTeams(prevTeams => prevTeams.slice(2));
-    
-    // Reset scores for new game
-    setScores({
-      [playingTeams[0].id]: 0,
-      [playingTeams[1].id]: 0
-    });
+    setTeams(newTeams);
+    setScores(newScores);
     setShowScoring(true);
+    sendSync({ currentlyPlaying: playingTeams, teams: newTeams, scores: newScores, showScoring: true });
   };
 
   // Scoring functions
   const addScore = (teamId, points) => {
-    setScores(prev => ({
-      ...prev,
-      [teamId]: (prev[teamId] || 0) + points
-    }));
+    const newScores = { ...scores, [teamId]: (scores[teamId] || 0) + points };
+    setScores(newScores);
+    sendSync({ scores: newScores });
   };
 
   const resetScores = () => {
     if (currentlyPlaying.length >= 2) {
-      setScores({
-        [currentlyPlaying[0].id]: 0,
-        [currentlyPlaying[1].id]: 0
-      });
+      const newScores = { [currentlyPlaying[0].id]: 0, [currentlyPlaying[1].id]: 0 };
+      setScores(newScores);
+      sendSync({ scores: newScores });
     }
   };
 
@@ -167,72 +423,82 @@ export default function App() {
     const newWinStreak = { ...winStreak };
     newWinStreak[winnerId] = (newWinStreak[winnerId] || 0) + 1;
     newWinStreak[loser.id] = 0;
-    setWinStreak(newWinStreak);
 
     // ผู้แพ้ไปท้ายคิว
-    setTeams(prevTeams => [...prevTeams, loser]);
+    let newTeams = [...teams, loser];
+    let newResting = [...restingTeams];
+    let newPlaying = [];
 
-    // ตรวจสอบว่ามีทีมพักหรือไม่ (ก่อนจัดการผู้ชนะ)
+    // ตรวจสอบว่ามีทีมพักหรือไม่
     let teamToReturn = null;
-    if (gameMode === 'rest' && restingTeams.length > 0) {
-      teamToReturn = restingTeams[0];
-      setRestingTeams(prev => prev.slice(1));
+    if (gameMode === 'rest' && newResting.length > 0) {
+      teamToReturn = newResting[0];
+      newResting = newResting.slice(1);
     }
 
     // ตรวจสอบโหมดเกม
     if (gameMode === 'rest' && newWinStreak[winnerId] >= 2) {
-      // โหมดชนะ 2 พัก: ชนะครบ 2 ครั้ง ต้องพัก!
       Alert.alert('🏆 ชนะ 2 ครั้งติดต่อกัน!', `${winner.name} ต้องพักหนึ่งเกม`);
       
       newWinStreak[winnerId] = 0;
-      setWinStreak(newWinStreak);
-      setRestingTeams(prev => [...prev, winner]);
+      newResting = [...newResting, winner];
       
-      // ถ้ามีทีมที่พักกลับมา ให้เล่นกับทีมแรกในคิว
       if (teamToReturn) {
-        if (teams.length > 0) {
-          setCurrentlyPlaying([teamToReturn, teams[0]]);
-          setTeams(prevTeams => prevTeams.slice(1));
+        if (newTeams.length > 0) {
+          newPlaying = [teamToReturn, newTeams[0]];
+          newTeams = newTeams.slice(1);
           Alert.alert('🔄 กลับมาเล่น!', `${teamToReturn.name} พักเสร็จแล้ว กลับมาเล่น`);
         } else {
-          setCurrentlyPlaying([teamToReturn]);
-          setTeams([]);
+          newPlaying = [teamToReturn];
         }
       } else {
-        // ไม่มีทีมพัก ดึง 2 ทีมใหม่มาเล่น
-        if (teams.length >= 2) {
-          setCurrentlyPlaying(teams.slice(0, 2));
-          setTeams(prevTeams => prevTeams.slice(2));
-        } else if (teams.length === 1) {
-          setCurrentlyPlaying([teams[0]]);
-          setTeams([]);
+        if (newTeams.length >= 2) {
+          newPlaying = newTeams.slice(0, 2);
+          newTeams = newTeams.slice(2);
+        } else if (newTeams.length === 1) {
+          newPlaying = [newTeams[0]];
+          newTeams = [];
         } else {
-          setCurrentlyPlaying([]);
+          newPlaying = [];
         }
       }
     } else {
-      // โหมดปกติ หรือ ชนะแค่ 1 ครั้ง: ผู้ชนะอยู่ต่อ
-      // ถ้ามีทีมพักกลับมา ให้เล่นกับผู้ชนะ
       if (teamToReturn) {
-        setCurrentlyPlaying([winner, teamToReturn]);
+        newPlaying = [winner, teamToReturn];
         Alert.alert('🔄 กลับมาท้าทาย!', `${teamToReturn.name} พักเสร็จแล้ว กลับมาท้าทาย ${winner.name}`);
-      } else if (teams.length > 0) {
-        setCurrentlyPlaying([winner, teams[0]]);
-        setTeams(prevTeams => prevTeams.slice(1));
+      } else if (newTeams.length > 0) {
+        newPlaying = [winner, newTeams[0]];
+        newTeams = newTeams.slice(1);
       } else {
-        setCurrentlyPlaying([winner]);
+        newPlaying = [winner];
       }
     }
+
+    // Apply all state
+    setWinStreak(newWinStreak);
+    setTeams(newTeams);
+    setRestingTeams(newResting);
+    setCurrentlyPlaying(newPlaying);
+
+    // Sync to all devices
+    sendSync({
+      winStreak: newWinStreak,
+      teams: newTeams,
+      restingTeams: newResting,
+      currentlyPlaying: newPlaying,
+      showScoring: false,
+    });
   };
 
   const removeTeam = (teamId) => {
-    setTeams(prevTeams => prevTeams.filter(team => team.id !== teamId));
-    setRestingTeams(prev => prev.filter(team => team.id !== teamId));
-    setWinStreak(prev => {
-      const newStreak = { ...prev };
-      delete newStreak[teamId];
-      return newStreak;
-    });
+    const newTeams = teams.filter(team => team.id !== teamId);
+    const newResting = restingTeams.filter(team => team.id !== teamId);
+    const newStreak = { ...winStreak };
+    delete newStreak[teamId];
+    setTeams(newTeams);
+    setRestingTeams(newResting);
+    setWinStreak(newStreak);
+    sendSync({ teams: newTeams, restingTeams: newResting, winStreak: newStreak });
   };
 
   const renderTeamItem = ({ item }) => {
@@ -262,21 +528,26 @@ export default function App() {
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.header}>
-        <Text style={styles.title}>🏀 Basketball Queue</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Animated.Text style={[styles.title, { transform: [{ rotate: spin }] }]}>
+            🏀
+          </Animated.Text>
+          <Text style={styles.title}> Basketball Queue</Text>
+        </View>
         <Text style={styles.subtitle}>จัดการคิวการเล่นบาส</Text>
         
         {/* สลับโหมดเกม */}
         <View style={styles.modeContainer}>
           <TouchableOpacity 
             style={[styles.modeButton, gameMode === 'normal' && styles.modeButtonActive]}
-            onPress={() => setGameMode('normal')}>
+            onPress={() => { setGameMode('normal'); sendSync({ gameMode: 'normal' }); }}>
             <Text style={[styles.modeButtonText, gameMode === 'normal' && styles.modeButtonTextActive]}>
               ⚡ ปกติ
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.modeButton, gameMode === 'rest' && styles.modeButtonActive]}
-            onPress={() => setGameMode('rest')}>
+            onPress={() => { setGameMode('rest'); sendSync({ gameMode: 'rest' }); }}>
             <Text style={[styles.modeButtonText, gameMode === 'rest' && styles.modeButtonTextActive]}>
               🏆 ชนะ 2 พัก
             </Text>
@@ -302,66 +573,48 @@ export default function App() {
           </View>
         </View>
 
+        {/* คิวรอ - moved up right after เพิ่มทีมใหม่ */}
+        <View style={styles.section}>
+          <View style={styles.queueHeader}>
+            <Text style={styles.sectionTitle}>คิวรอ ({teams.length} ทีม)</Text>
+            {teams.length >= 2 && currentlyPlaying.length === 0 && (
+              <TouchableOpacity style={styles.startButton} onPress={startGame}>
+                <Text style={styles.startButtonText}>เริ่มเกม</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {teams.length > 0 ? (
+            <FlatList
+              data={teams}
+              renderItem={renderTeamItem}
+              keyExtractor={item => item.id}
+              scrollEnabled={false}
+            />
+          ) : (
+            <Text style={styles.noTeams}>ไม่มีทีมในคิว</Text>
+          )}
+        </View>
+
+        {teams.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>ทีมต่อไป</Text>
+            <Text style={styles.nextTeam}>
+              {teams.length >= 2 
+                ? `${teams[0]?.name} VS ${teams[1]?.name}`
+                : teams.length === 1 
+                  ? `${teams[0]?.name} (รอทีมที่ 2)`
+                  : 'ไม่มีทีมในคิว'
+              }
+            </Text>
+          </View>
+        )}
+
         {/* Timer Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>⏱️ ตั้งเวลา</Text>
           
-          {/* Timer Display */}
-          <View style={styles.timerDisplay}>
-            <Text style={styles.timerText}>{formatTime(timeLeft || timerDuration * 60)}</Text>
-          </View>
-
-          {/* Duration Selector */}
-          {!isTimerRunning && timeLeft === 0 && (
-            <View style={styles.durationContainer}>
-              <Text style={styles.durationLabel}>ระยะเวลา (นาที):</Text>
-              <View style={styles.durationButtons}>
-                {[5, 10, 15, 20].map(duration => (
-                  <TouchableOpacity
-                    key={duration}
-                    style={[
-                      styles.durationButton,
-                      timerDuration === duration && styles.durationButtonActive
-                    ]}
-                    onPress={() => {
-                      setTimerDuration(duration);
-                      setCustomMinutes('');
-                    }}>
-                    <Text style={[
-                      styles.durationButtonText,
-                      timerDuration === duration && styles.durationButtonTextActive
-                    ]}>
-                      {duration}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              
-              {/* Custom Time Input */}
-              <View style={styles.customTimeContainer}>
-                <Text style={styles.customTimeLabel}>หรือกรอกเวลาเอง:</Text>
-                <View style={styles.customTimeInput}>
-                  <TextInput
-                    style={styles.customInput}
-                    placeholder="นาที"
-                    keyboardType="number-pad"
-                    value={customMinutes}
-                    onChangeText={(text) => {
-                      setCustomMinutes(text);
-                      const mins = parseInt(text);
-                      if (!isNaN(mins) && mins > 0) {
-                        setTimerDuration(mins);
-                      }
-                    }}
-                    maxLength={3}
-                  />
-                  <Text style={styles.customTimeUnit}>นาที</Text>
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* Timer Controls */}
+          {/* Timer Controls - อยู่ข้างบน */}
           <View style={styles.timerControls}>
             {!isTimerRunning ? (
               <TouchableOpacity style={styles.timerButton} onPress={startTimer}>
@@ -381,6 +634,23 @@ export default function App() {
               <TouchableOpacity style={[styles.timerButton, styles.stopButton]} onPress={stopTimer}>
                 <Text style={styles.timerButtonText}>⏹️ หยุด</Text>
               </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Timer Display - กดแก้เวลาได้ตรงนี้เลย */}
+          <View style={styles.timerDisplay}>
+            {!isTimerRunning && (timeLeft === 0 || timeLeft === timerDuration * 60) ? (
+              <WheelPicker 
+                value={timerDuration}
+                onValueChange={(mins) => {
+                  setTimerDuration(mins);
+                  setTimeLeft(mins * 60);
+                  sendSync({ timerDuration: mins, timeLeft: mins * 60 });
+                  setCustomMinutes(mins.toString());
+                }}
+              />
+            ) : (
+              <Text style={styles.timerText}>{formatTime(timeLeft || timerDuration * 60)}</Text>
             )}
           </View>
         </View>
@@ -513,42 +783,6 @@ export default function App() {
           </View>
         )}
 
-        <View style={styles.section}>
-          <View style={styles.queueHeader}>
-            <Text style={styles.sectionTitle}>คิวรอ ({teams.length} ทีม)</Text>
-            {teams.length >= 2 && currentlyPlaying.length === 0 && (
-              <TouchableOpacity style={styles.startButton} onPress={startGame}>
-                <Text style={styles.startButtonText}>เริ่มเกม</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          {teams.length > 0 ? (
-            <FlatList
-              data={teams}
-              renderItem={renderTeamItem}
-              keyExtractor={item => item.id}
-              scrollEnabled={false}
-            />
-          ) : (
-            <Text style={styles.noTeams}>ไม่มีทีมในคิว</Text>
-          )}
-        </View>
-
-        {teams.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>ทีมต่อไป</Text>
-            <Text style={styles.nextTeam}>
-              {teams.length >= 2 
-                ? `${teams[0]?.name} VS ${teams[1]?.name}`
-                : teams.length === 1 
-                  ? `${teams[0]?.name} (รอทีมที่ 2)`
-                  : 'ไม่มีทีมในคิว'
-              }
-            </Text>
-          </View>
-        )}
-
       </ScrollView>
     </View>
   );
@@ -632,21 +866,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flexWrap: 'wrap', // ป้องกันการล้นออกมาในหน้าจอแคบ
   },
   input: {
     flex: 1,
+    minWidth: 150, // จำกัดขนาดต่ำสุด
     backgroundColor: '#F5F7FA',
     borderWidth: 0,
     borderRadius: 16,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 16,
     fontSize: 17,
     color: '#2C3E50',
     fontWeight: '600',
   },
   addButton: {
+    flexShrink: 0,
     backgroundColor: '#FF6B35',
-    paddingHorizontal: 28,
+    paddingHorizontal: 20, // ลด padding เพื่อให้พอดีกับหน้าจอพับ 
     paddingVertical: 16,
     borderRadius: 16,
     shadowColor: '#FF6B35',
@@ -670,21 +907,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
     width: '100%',
+    flexWrap: 'wrap', // ป้องกันทะลุขอบ
+    gap: 8,
   },
   playingTeamButton: {
     alignItems: 'center',
     flex: 1,
-    maxWidth: 140,
+    minWidth: 110, // รองรับ fold 5
+    maxWidth: 160,
   },
   playingTeam: {
     fontSize: 20,
     fontWeight: '800',
     color: '#FFF',
     backgroundColor: '#4CAF50',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 20,
-    minWidth: 120,
+    width: '100%',
     textAlign: 'center',
     shadowColor: '#4CAF50',
     shadowOffset: { width: 0, height: 4 },
@@ -703,7 +943,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '900',
     color: '#FF6B35',
-    marginHorizontal: 16,
+    marginHorizontal: 8,
   },
   instruction: {
     fontSize: 14,
@@ -974,13 +1214,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#2C3E50',
     paddingVertical: 30,
     borderRadius: 20,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   timerText: {
     fontSize: 64,
     fontWeight: '900',
     color: '#FFF',
     fontVariant: ['tabular-nums'],
+  },
+  timerEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  timerInputText: {
+    fontSize: 56,
+    fontWeight: '900',
+    color: '#FFF',
+    textAlign: 'center',
+    minWidth: 100,
+    paddingBottom: 4,
+  },
+  timerUnitText: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.6)',
   },
   durationContainer: {
     marginBottom: 20,
@@ -1003,25 +1262,27 @@ const styles = StyleSheet.create({
   customTimeInput: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
+    gap: 24,
+    marginBottom: 16,
   },
   customInput: {
-    flex: 1,
+    width: 120,
     backgroundColor: '#F5F7FA',
     borderWidth: 2,
     borderColor: '#FF6B35',
     borderRadius: 12,
     paddingHorizontal: 20,
     paddingVertical: 12,
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: '700',
     color: '#2C3E50',
     textAlign: 'center',
   },
   customTimeUnit: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#7F8C8D',
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2C3E50',
   },
   durationButtons: {
     flexDirection: 'row',
@@ -1048,6 +1309,7 @@ const styles = StyleSheet.create({
   timerControls: {
     flexDirection: 'row',
     gap: 10,
+    marginBottom: 12,
   },
   timerButton: {
     flex: 1,
@@ -1077,5 +1339,35 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '800',
+  },
+  connectionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginTop: 12,
+    gap: 8,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  statusConnected: {
+    backgroundColor: '#4CAF50',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+  },
+  statusDisconnected: {
+    backgroundColor: '#E74C3C',
+  },
+  statusText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
