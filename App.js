@@ -13,6 +13,7 @@ import {
   Platform,
   Animated,
   Easing,
+  PanResponder,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,6 +39,38 @@ const minutesData = Array.from({ length: 99 }, (_, i) => i + 1);
 const WheelPicker = ({ value, onValueChange }) => {
   const flatListRef = useRef(null);
   const [scrollIndex, setScrollIndex] = useState(minutesData.indexOf(value));
+  const startOffset = useRef(0);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => Platform.OS === 'web',
+      onMoveShouldSetPanResponder: () => Platform.OS === 'web',
+      onPanResponderGrant: () => {
+        startOffset.current = Math.max(0, scrollIndex) * ITEM_HEIGHT;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const newOffset = startOffset.current - gestureState.dy;
+        if (flatListRef.current) {
+          flatListRef.current.scrollToOffset({ offset: Math.max(0, newOffset), animated: false });
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        const newOffset = startOffset.current - gestureState.dy;
+        let targetIndex = Math.round(newOffset / ITEM_HEIGHT);
+        if (targetIndex < 0) targetIndex = 0;
+        if (targetIndex >= minutesData.length) targetIndex = minutesData.length - 1;
+        
+        flatListRef.current?.scrollToOffset({
+          offset: targetIndex * ITEM_HEIGHT,
+          animated: true,
+        });
+        
+        if (minutesData[targetIndex] && minutesData[targetIndex] !== value) {
+          onValueChange(minutesData[targetIndex]);
+        }
+      }
+    })
+  ).current;
 
   useEffect(() => {
     if (flatListRef.current) {
@@ -88,15 +121,17 @@ const WheelPicker = ({ value, onValueChange }) => {
         zIndex: 0,
       }} />
       
-      <FlatList
-        ref={flatListRef}
-        data={minutesData}
-        keyExtractor={(item) => item.toString()}
-        showsVerticalScrollIndicator={Platform.OS === 'web'}
-        snapToInterval={ITEM_HEIGHT}
-        decelerationRate="fast"
-        nestedScrollEnabled={true}
-        onScroll={onScroll}
+      <View {...(Platform.OS === 'web' ? panResponder.panHandlers : {})}>
+        <FlatList
+          ref={flatListRef}
+          data={minutesData}
+          keyExtractor={(item) => item.toString()}
+          showsVerticalScrollIndicator={Platform.OS === 'web'}
+          scrollEnabled={Platform.OS !== 'web'}
+          snapToInterval={ITEM_HEIGHT}
+          decelerationRate="fast"
+          nestedScrollEnabled={true}
+          onScroll={onScroll}
         onMomentumScrollEnd={onScrollEnd}
         onScrollEndDrag={onScrollEnd}
         scrollEventThrottle={16}
@@ -119,7 +154,8 @@ const WheelPicker = ({ value, onValueChange }) => {
             </View>
           );
         }}
-      />
+        />
+      </View>
       <Text style={{ fontSize: 24, fontWeight: '800', color: 'rgba(255,255,255,0.8)', marginLeft: 10 }}>นาที</Text>
     </View>
   );
