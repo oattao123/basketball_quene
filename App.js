@@ -72,7 +72,7 @@ const WheelPicker = ({ value, onValueChange }) => {
   };
 
   return (
-    <View style={{ height: ITEM_HEIGHT * 3, overflow: 'hidden', alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+    <View style={{ height: ITEM_HEIGHT * 3, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', zIndex: 10 }}>
       {/* Highlight Box */}
       <View style={{
         position: 'absolute',
@@ -85,6 +85,7 @@ const WheelPicker = ({ value, onValueChange }) => {
         borderColor: 'rgba(255,107,53,0.5)',
         backgroundColor: 'rgba(255,255,255,0.05)',
         borderRadius: 12,
+        zIndex: 0,
       }} />
       
       <FlatList
@@ -94,6 +95,7 @@ const WheelPicker = ({ value, onValueChange }) => {
         showsVerticalScrollIndicator={Platform.OS === 'web'}
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
+        nestedScrollEnabled={true}
         onScroll={onScroll}
         onMomentumScrollEnd={onScrollEnd}
         onScrollEndDrag={onScrollEnd}
@@ -101,6 +103,7 @@ const WheelPicker = ({ value, onValueChange }) => {
         contentContainerStyle={{
           paddingVertical: ITEM_HEIGHT,
         }}
+        style={{ flexGrow: 0, width: 100, zIndex: 5 }}
         renderItem={({ item, index }) => {
           const isSelected = index === scrollIndex;
           return (
